@@ -61,8 +61,36 @@ public class FitnesseProcess extends  FutureBasedBuildProcess {
     private String getFitNesseCmd()
     {
         File jarFitnesse = new File(getParameter("fitnesseJarPath"));
-        String  result = String.format("java -jar \"%s\"  -p %d",jarFitnesse.getAbsolutePath(), getPort());
-        return result;
+        return isWindows()
+                ? getCommandForWindows(jarFitnesse)
+                : getCommandForNix(jarFitnesse)
+                ;
+    }
+
+    private boolean isWindows()
+    {
+        String os = System.getProperty("os.name").toLowerCase();
+        return (os.indexOf("win") >= 0);
+    }
+
+    private String getCommandForWindows(File jarFile)
+    {
+        return String.format("java -jar \"%s\" -p %d", jarFile.getAbsolutePath(), getPort());
+    }
+
+    private String getCommandForNix(File jarFile)
+    {
+        String fileName = jarFile.getName();
+        if(fileName.indexOf(" ") >= 0)
+        {
+            Logger.progressMessage(
+                    String.format(
+                            "Trying to run jar file '%s' which contains spaces in name. Spaces can brake process",
+                            fileName
+                    )
+            );
+        }
+        return String.format("java -jar %s -p %d", fileName, getPort());
     }
 
     private Process runFitnesseInstance()
@@ -190,7 +218,7 @@ public class FitnesseProcess extends  FutureBasedBuildProcess {
 
                             Logger.logTestFinished(testName,  new Date());
                         }
-                }
+                    }
                 }
             }
             xmlReader.close();
@@ -229,8 +257,12 @@ public class FitnesseProcess extends  FutureBasedBuildProcess {
                 count++;
             }
 
-        }while (!line.contains("page version expiration set to") && count<timeout && !isInterrupted());
-        return line.contains("page version expiration set to");
+        } while (
+                (line == null || !line.contains("page version expiration set to"))
+                        && count<timeout
+                        && !isInterrupted()
+                );
+        return line != null && line.contains("page version expiration set to");
     }
 
     private int getPort()

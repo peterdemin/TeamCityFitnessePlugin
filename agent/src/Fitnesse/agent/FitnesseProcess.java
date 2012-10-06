@@ -1,5 +1,8 @@
 package Fitnesse.agent;
 
+import Fitnesse.agent.ResultReader.Result;
+import Fitnesse.agent.ResultReader.ResultReaderFactory;
+import Fitnesse.agent.ResultReader.ResultReaderType;
 import Fitnesse.common.Util;
 import jetbrains.buildServer.agent.AgentRunningBuild;
 import jetbrains.buildServer.agent.BuildFinishedStatus;
@@ -13,20 +16,16 @@ import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.util.Date;
-import javax.xml.stream.*;
-import javax.xml.stream.events.EndElement;
-import javax.xml.stream.events.StartElement;
-import javax.xml.stream.events.XMLEvent;
-
 
 /**
- * Created with IntelliJ IDEA.
- * User: Advard
- * Date: 31.03.12
- * Time: 23:33
- * To change this template use File | Settings | File Templates.
+ * Class describes running Fitnesse process. Process is responsible for:
+ * - starting (unpacking if necessary) Fitnesse
+ * - starting Fitnesse tests
+ * - collecting tests results
+ *
+ * @author Advard, elgris
  */
-public class FitnesseProcess extends  FutureBasedBuildProcess {
+public class FitnesseProcess extends FutureBasedBuildProcess {
 
     private final static String LOCAL_URL = "http://localhost";
 
@@ -36,306 +35,180 @@ public class FitnesseProcess extends  FutureBasedBuildProcess {
     private final BuildRunnerContext Context;
     @NotNull
     private final BuildProgressLogger Logger;
+    @NotNull
+    private final ResultLogger ResultLogger;
+    @NotNull
+    private TestRunner TestRunner;
 
-    public FitnesseProcess (@NotNull final AgentRunningBuild build, @NotNull final BuildRunnerContext context)
-    {
+    public FitnesseProcess(@NotNull final AgentRunningBuild build, @NotNull final BuildRunnerContext context) {
         Build = build;
         Context = context;
         Logger = build.getBuildLogger();
+        ResultLogger = new ResultLogger(Logger);
+        TestRunner = new TestRunner();
     }
 
-    private String getParameter(@NotNull final String parameterName)
-    {
-        final String value = Context.getRunnerParameters().get(parameterName);
-        if (value == null || value.trim().length() == 0) return null;
-        String result = value.trim();
+    public BuildFinishedStatus call() throws Exception {
+        BuildFinishedStatus result = BuildFinishedStatus.FINISHED_FAILED;
+        try {
+            ensureFitnesseAvailable();
+            initTestRunner();
+            result = runTests();
+        } catch(InterruptedException e) {
+            result = BuildFinishedStatus.INTERRUPTED;
+            Logger.error("Fitnesse process has been interrupted");
+        }
         return result;
     }
 
-    private String getFitnesseRoot()
-    {
-        File jarFitnesse = new File(getParameter("fitnesseJarPath"));
-        return jarFitnesse.getParent();
+    private void initTestRunner() throws Exception {
+        TestRunner.setFitnessePath(getFitnesseUrl().toString());
+        // TODO here reader is being set up every time... That's bad
+        TestRunner.setReader(ResultReaderFactory.getStreamReader(ResultReaderType.Xml));
     }
 
-    private String getFitNesseCmd()
-    {
-        File jarFitnesse = new File(getParameter("fitnesseJarPath"));
-        return isWindows()
-                ? getCommandForWindows(jarFitnesse)
-                : getCommandForNix(jarFitnesse)
-                ;
-    }
-
-    private boolean isWindows()
-    {
-        String os = System.getProperty("os.name").toLowerCase();
-        return (os.indexOf("win") >= 0);
-    }
-
-    private String getCommandForWindows(File jarFile)
-    {
-        return String.format("java -jar \"%s\" -p %d", jarFile.getAbsolutePath(), getPort());
-    }
-
-    private String getCommandForNix(File jarFile)
-    {
-        String fileName = jarFile.getName();
-        if(fileName.indexOf(" ") >= 0)
-        {
-            Logger.progressMessage(
-                    String.format(
-                            "Trying to run jar file '%s' which contains spaces in name. Spaces can brake process",
-                            fileName
-                    )
-            );
+    // TODO here we only check that FitNesse can be launched as webserver. It can be launched for single command though
+    // TODO Implement FitNesse as command executor
+    private void ensureFitnesseAvailable() {
+        try {
+            Logger.progressMessage(new String("Checking if FitNesse is already up'n'running"));
+            checkExistingFitnesseConnection();
+        } catch(IOException e) {
+            Logger.progressMessage(new String("Launching new FitNesse server"));
+            createFitnesseConnection();
         }
-        return String.format("java -jar %s -p %d", fileName, getPort());
     }
 
-    private Process runFitnesseInstance()
-    {
-        try
-        {
-            String cmdFitnesse = getFitNesseCmd();
-            String rootFolder = getFitnesseRoot();
-            Logger.progressMessage(String.format("Running fitnesse use cmd '%s' in '%s'", cmdFitnesse, rootFolder));
-
-            return Runtime.getRuntime().exec(cmdFitnesse, null, new File(rootFolder));
-        }
-        catch (IOException e) {
-            Logger.exception(e);
-        }
-        return null;
+    private void checkExistingFitnesseConnection() throws IOException {
+        URL url = getFitnesseUrl();
+        HttpURLConnection connection = (HttpURLConnection)url.openConnection();
+        connection.disconnect();
+        Logger.progressMessage(String.format("FitNesse is running at %s", url.toString()));
     }
 
-
-    public boolean  getSuiteResults(String relUrl) throws MalformedURLException
-    {
-        URL pageCmdTarget = getTestAbsoluteUrl(relUrl);
-        InputStream  inputStream =null;
-        String suiteName = "FitNesse "+relUrl;
-        try
-        {
-            Logger.progressMessage("Connnecting to " + pageCmdTarget);
-            HttpURLConnection connection = (HttpURLConnection) pageCmdTarget.openConnection();
-            Logger.progressMessage("Connected: " + connection.getResponseCode() + "/" + connection.getResponseMessage());
-
-            inputStream = connection.getInputStream();
-
-            XMLEventReader xmlReader  = XMLInputFactory.newInstance().createXMLEventReader(inputStream);
-
-            //TODO Move to separated class
-            Integer rightCount = 0;
-            Integer wrongCount = 0;
-            Integer ignoresCount = 0;
-            Integer exceptionsCount = 0;
-            Integer runTimeInMillis = 0;
-            String relativePageName = "";
-            String pageHistoryLink = "";
-
-            Logger.logSuiteStarted(suiteName);
-
-            while (xmlReader.hasNext())
-            {
-                XMLEvent event = xmlReader.nextEvent();
-                if (event.isStartElement())
-                {
-                    StartElement startElement = event.asStartElement();
-                    String elName = startElement.getName().getLocalPart();
-
-                    if (elName.equalsIgnoreCase("result"))
-                    {
-                        rightCount = 0;
-                        wrongCount = 0;
-                        ignoresCount = 0;
-                        exceptionsCount = 0;
-                        runTimeInMillis = 0;
-                        relativePageName = "";
-                        pageHistoryLink = "";
-                    }
-                    else if (elName.equalsIgnoreCase("right"))
-                    {
-                        //TODO remove dupl
-                        event = xmlReader.nextEvent();
-                        String data = event.asCharacters().getData();
-                        rightCount = Integer.parseInt(data );
-                    }
-                    else if (elName.equalsIgnoreCase("wrong"))
-                    {
-                        event = xmlReader.nextEvent();
-                        String data = event.asCharacters().getData();
-                        wrongCount = Integer.parseInt(data );
-                    }
-                    else if (elName.equalsIgnoreCase("ignores"))
-                    {
-                        event = xmlReader.nextEvent();
-                        String data = event.asCharacters().getData();
-                        ignoresCount = Integer.parseInt(data );
-                    }
-                    else if (elName.equalsIgnoreCase("exceptions"))
-                    {
-                        event = xmlReader.nextEvent();
-                        String data = event.asCharacters().getData();
-                        exceptionsCount = Integer.parseInt(data );
-                    }
-                    else if (elName.equalsIgnoreCase("runTimeInMillis"))
-                    {
-                        event = xmlReader.nextEvent();
-                        String data = event.asCharacters().getData();
-                        runTimeInMillis = Integer.parseInt(data );
-                    }
-                    else if (elName.equalsIgnoreCase("relativePageName"))
-                    {
-                        event = xmlReader.nextEvent();
-                        relativePageName= event.asCharacters().getData();
-                    }
-                    else if (elName.equalsIgnoreCase("pageHistoryLink"))
-                    {
-                        event = xmlReader.nextEvent();
-                        pageHistoryLink= event.asCharacters().getData();
-                    }
-                }
-                else
-                if (event.isEndElement())
-                {
-                    EndElement endElement = event.asEndElement();
-                    if (endElement.getName().getLocalPart().equalsIgnoreCase("result"))
-                    {
-                        String testName = pageHistoryLink;
-                        if ((rightCount == 0) && (wrongCount ==0) && (exceptionsCount == 0))
-                        {
-                            Logger.logTestIgnored(testName, "empty test");
-                        }
-                        else
-                        {
-                            Logger.logTestStarted(testName, new Date(System.currentTimeMillis()-runTimeInMillis));
-
-                            if ((wrongCount >0) || (exceptionsCount > 0))
-                            {
-                                Logger.logTestFailed(testName, String.format("wrong:%d  exception:%d", wrongCount, exceptionsCount), "" );
-                            }
-
-                            Logger.logTestFinished(testName,  new Date());
-                        }
-                    }
-                }
-            }
-            xmlReader.close();
+    private void createFitnesseConnection() {
+        try {
+            Process fitnesseProcess = runFitnesseInstance();
+            waitUntilFitnesseUnpacks(fitnesseProcess);
+        } catch (IOException e) {
+            throw new RuntimeException(String.format("Could not create FitNesse connection: %s", e.getMessage()));
+        } catch (Exception e) {
+            throw new RuntimeException(e);
         }
-        catch (Exception e)
-        {
-            Logger.exception(e);
-        } finally{
-            if (inputStream != null){
-                try {
-                    inputStream.close();
-                }
-                catch (Exception e){
-                }
-            }
-            Logger.logSuiteFinished(suiteName);
-        }
-        return true;
-
     }
 
-    private boolean waitWhileUnpacking(Process fitProcess) throws  Exception
-    {
-        BufferedReader is = new BufferedReader(new InputStreamReader(fitProcess.getInputStream()));
+    private Process runFitnesseInstance() throws IOException {
+        String cmdFitnesse = getFitNesseCmd();
+        String rootFolder = getFitnesseRoot();
+        Logger.progressMessage(String.format("Running fitnesse use cmd '%s' in '%s'", cmdFitnesse, rootFolder));
+        return Runtime.getRuntime().exec(cmdFitnesse, null, new File(rootFolder));
+    }
+
+    // TODO we can encapsulate it to some FitnesseUnpacker or FitnesseInstance
+    private void waitUntilFitnesseUnpacks(Process fitnesseProcess) throws Exception {
+        BufferedReader is = new BufferedReader(new InputStreamReader(fitnesseProcess.getInputStream()));
 
         int timeout = 60;
         int count = 0;
         String line = "";
-        do{
+        do {
             line = is.readLine();
-            if (line != null)
-                Logger.progressMessage("\t"+line);
-            else
-            {
+            if (line == null) {
                 Thread.sleep(1000);
                 count++;
             }
-
         } while (
-                (line == null || !line.contains("page version expiration set to"))
-                        && count<timeout
-                        && !isInterrupted()
-                );
-        return line != null && line.contains("page version expiration set to");
+            (line == null || !line.contains("page version expiration set to"))
+                && count < timeout
+                && !isInterrupted()
+        );
+        if(isInterrupted()) {
+            throw new InterruptedException();
+        }
+        if(line == null || line.contains("page version expiration set to")) {
+            throw new Exception("Incorrect FitNesse output detected!");
+        }
     }
 
-    private int getPort()
-    {
-        return Integer.parseInt(getParameter(Util.PROPERTY_FITNESSE_PORT));
+    private BuildFinishedStatus runTests() throws Exception {
+        String [] testNames = getTestNames();
+        for(String testName : testNames) {
+            try {
+                Logger.logTestStarted(testName, new Date());
+                Result result = TestRunner.run(testName);
+                ResultLogger.print(testName, result);
+            } catch(Exception e) {
+                Logger.logTestFailed(testName, e);
+            } finally {
+                Logger.logTestFinished(testName, new Date());
+            }
+        }
+        return BuildFinishedStatus.FINISHED_SUCCESS;
     }
 
-    private String [] getTestRelativeUrls()
-    {
+    private String[] getTestNames() {
         return getParameter(Util.PROPERTY_FITNESSE_TEST).split(";");
     }
 
-    private URL getTestAbsoluteUrl(String relUrl) throws MalformedURLException
-    {
-        return new URL(String.format("%s:%d/%s&format=xml",LOCAL_URL, getPort(), relUrl));
-    }
-
-    private boolean isShouldBeRun()
-    {
-        String[] relUrls = getTestRelativeUrls();
-
-        for (String relUrl : relUrls)
-        {
-            if (relUrl.indexOf('?') > 0)
-                return true;
-        }
-        return false;
-    }
-
     @NotNull
-    public BuildFinishedStatus call() throws Exception
-    {
-        if (!isShouldBeRun()) {
-            Logger.message("Nothing to run");
-            return BuildFinishedStatus.FINISHED_SUCCESS;
+    private String getParameter(@NotNull final String parameterName) {
+        final String value = Context.getRunnerParameters().get(parameterName);
+        if (value == null) {
+            throw new RuntimeException(String.format("Unknown parameter: %s", parameterName));
         }
+        String result = value.trim();
+        return result;
+    }
 
+    private String getFitNesseCmd() {
+        return String.format("java -jar %s -p %d -d %s", getRunCommand(), getPort(), getFitnesseRoot());
+    }
 
+    private String getRunCommand() {
+        File jarFitnesse = new File(getParameter("fitnesseJarPath"));
+        return isWindows()
+            ? getCommandForWindows(jarFitnesse)
+            : getCommandForNix(jarFitnesse);
+    }
+
+    private boolean isWindows() {
+        String os = System.getProperty("os.name").toLowerCase();
+        return (os.indexOf("win") >= 0);
+    }
+
+    private String getCommandForWindows(File jarFile) {
+        return String.format("\"%s\"", jarFile.getAbsolutePath(), getPort());
+    }
+
+    private String getCommandForNix(File jarFile) {
+        String fileName = jarFile.getName();
+        if (fileName.indexOf(" ") >= 0) {
+            Logger.progressMessage(
+                String.format(
+                    "Trying to run jar file '%s' which contains spaces in name. Spaces can brake process",
+                    fileName
+                )
+            );
+        }
+        return fileName;
+    }
+
+    private String getFitnesseRoot() {
+        File jarFitnesse = new File(getParameter("fitnesseJarPath"));
+        return jarFitnesse.getParent();
+    }
+
+    private int getPort() {
+        return Integer.parseInt(getParameter(Util.PROPERTY_FITNESSE_PORT));
+    }
+
+    private URL getFitnesseUrl() {
+        String urlString = String.format("%s:%d/", LOCAL_URL, getPort());
         try {
-            //TODO Support detecting free port in range
-            //TODO detect fitnesse version
-            //TODO add http timeout
-            Process fitProcess = null;
-
-            try {
-                fitProcess = runFitnesseInstance();
-                Logger.progressMessage("Fitnesse runned");
-                if (waitWhileUnpacking(fitProcess)) {
-                    //TODO Support multiple tests
-                    //TODO Support running multiple tests in parallel
-
-                    for (String relUrl : getTestRelativeUrls())
-                    {
-                        getSuiteResults(relUrl);
-                    }
-
-                    Logger.progressMessage("terminating");
-                }
-                else {
-                    Logger.error("Could not start fitnesse or interupted");
-                    return  isInterrupted()?BuildFinishedStatus.INTERRUPTED:BuildFinishedStatus.FINISHED_FAILED;
-                }
-            }
-            finally {
-                if (fitProcess != null)
-                    fitProcess.destroy();
-            }
-
-            return BuildFinishedStatus.FINISHED_SUCCESS;
-        }
-        catch (Exception e){
-            Logger.exception(e);
-            return BuildFinishedStatus.FINISHED_FAILED;
+            return new URL(urlString);
+        } catch (MalformedURLException e) {
+            // Log that we have an error in our URL providing 'urlString'
+            throw new RuntimeException(e);
         }
     }
 }

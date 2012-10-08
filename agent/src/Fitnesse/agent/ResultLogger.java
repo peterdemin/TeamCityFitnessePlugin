@@ -41,7 +41,7 @@ public class ResultLogger {
         int ignores = result.getIgnoresCount();
 
         String resultString = String.format(
-            "right: %d \nwrong: %d \n exceptions: %d \n ignored: %d",
+            "right: %d\twrong: %d\texceptions: %d\t ignored: %d",
             rights, wrongs, exceptions, ignores
         );
         if(rights == 0 && wrongs == 0 && exceptions == 0 && ignores == 0) {

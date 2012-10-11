@@ -34,6 +34,12 @@ public class FitnesseBuildProcess extends FutureBasedBuildProcess {
 
     private final static String DEFAULT_HOSTNAME = "localhost";
 
+    //TODO This is stub for future testsuites support. Run mode can be either 'test' or 'suite' or something else
+    private final static String TEST_RUN_MODE = "test";
+
+    //TODO This is stub for future output formats support. Can be either 'xml' or 'text'
+    private final static String OUTPUT_FORMAT = "xml";
+
     @NotNull
     private final AgentRunningBuild Build;
     @NotNull
@@ -76,19 +82,16 @@ public class FitnesseBuildProcess extends FutureBasedBuildProcess {
     private BuildFinishedStatus runTests() throws Exception {
         String [] testNames = getTestNames();
         for(String testName : testNames) {
+            String testUrl = String.format("%s%s?%s", getFitnesseUrl(), testName, TEST_RUN_MODE);
             try {
                 Logger.logTestStarted(testName, new Date());
-                Logger.progressMessage(String.format("Test URL: %s%s?test", getFitnesseUrl(), testName));
-
-                URL url = new URL(String.format("%s%s?test&format=xml", getFitnesseUrl(), testName));
+                URL url = new URL(String.format("%s&format=%s", testUrl, OUTPUT_FORMAT));
                 HttpURLConnection connection = (HttpURLConnection) url.openConnection();
                 InputStream stream = connection.getInputStream();
                 Result result = ResultReader.getResult(stream);
-                ResultLogger.print(testName, result);
+                ResultLogger.print(testName, testUrl, result);
             } catch(Exception e) {
-                Logger.logTestFailed(testName, e);
-            } finally {
-                Logger.logTestFinished(testName, new Date());
+                Logger.logTestFailed(testName, String.format("Test URL: %s", testUrl), "");
             }
         }
         return BuildFinishedStatus.FINISHED_SUCCESS;

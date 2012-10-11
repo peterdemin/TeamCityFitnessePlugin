@@ -34,22 +34,23 @@ public class ResultLogger {
         Logger = progressLogger;
     }
 
-    public void print(String testName, Result result) {
+    public void print(String testName, String testUrl, Result result) {
         int rights = result.getRightsCount();
         int wrongs = result.getWrongsCount();
         int exceptions = result.getExceptionsCount();
         int ignores = result.getIgnoresCount();
+        int timeConsumed = result.getTimeConsumed();
 
         String resultString = String.format(
-            "right: %d\twrong: %d\texceptions: %d\t ignored: %d",
-            rights, wrongs, exceptions, ignores
+            "right: %d\twrong: %d\texceptions: %d\t ignored: %d\nTest runtime: %d msec\nTest URL: %s",
+            rights, wrongs, exceptions, ignores, timeConsumed, testUrl
         );
         if(rights == 0 && wrongs == 0 && exceptions == 0 && ignores == 0) {
             Logger.logTestIgnored(testName, "Empty test");
         } else if (wrongs > 0 || exceptions > 0) {
             Logger.logTestFailed(testName, resultString, "");
         } else {
-            Logger.progressMessage(resultString);
+            Logger.logTestFinished(resultString);
         }
     }
 

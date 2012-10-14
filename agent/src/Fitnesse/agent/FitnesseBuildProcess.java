@@ -14,25 +14,18 @@ import org.jetbrains.annotations.NotNull;
 
 import java.io.*;
 import java.net.HttpURLConnection;
-import java.net.InetAddress;
 import java.net.URL;
 import java.net.UnknownHostException;
 import java.util.Date;
 
 /**
  * Class describes running Fitnesse process. Process is responsible for:
- * - starting (unpacking if necessary) Fitnesse
  * - starting Fitnesse tests
  * - collecting tests results
- *
- * @todo FitNesse can be launched not only as server process but as a single command processor ('-c' parameter)
- * @todo Make some initializer that can checke whether FitNesse already working or launch new instance of it
  *
  * @author Advard, elgris
  */
 public class FitnesseBuildProcess extends FutureBasedBuildProcess {
-
-    private final static String DEFAULT_HOSTNAME = "localhost";
 
     //TODO This is stub for future testsuites support. Run mode can be either 'test' or 'suite' or something else
     private final static String TEST_RUN_MODE = "test";
@@ -71,7 +64,7 @@ public class FitnesseBuildProcess extends FutureBasedBuildProcess {
     }
 
     private void checkExistingFitnesseConnection() throws IOException {
-        URL url = new URL(getFitnesseUrl());
+        URL url = new URL(getFitnesseHost());
         HttpURLConnection connection = (HttpURLConnection)url.openConnection();
         if(connection.getResponseCode() != HttpURLConnection.HTTP_OK) {
             throw new RuntimeException("FitNesse is not available!");
@@ -82,7 +75,7 @@ public class FitnesseBuildProcess extends FutureBasedBuildProcess {
     private BuildFinishedStatus runTests() throws Exception {
         String [] testNames = getTestNames();
         for(String testName : testNames) {
-            String testUrl = String.format("%s%s?%s", getFitnesseUrl(), testName, TEST_RUN_MODE);
+            String testUrl = String.format("%s%s?%s", getFitnesseHost(), testName, TEST_RUN_MODE);
             try {
                 Logger.logTestStarted(testName, new Date());
                 URL url = new URL(String.format("%s&format=%s", testUrl, OUTPUT_FORMAT));
@@ -91,14 +84,19 @@ public class FitnesseBuildProcess extends FutureBasedBuildProcess {
                 Result result = ResultReader.getResult(stream);
                 ResultLogger.print(testName, testUrl, result);
             } catch(Exception e) {
-                Logger.logTestFailed(testName, String.format("Test URL: %s", testUrl), "");
+                Logger.logTestFailed(
+                    testName,
+                    String.format("Exception encountered:%s\nTest URL: %s", e.getMessage(), testUrl), ""
+                );
+            } finally {
+                Logger.logTestFinished(testName, new Date());
             }
         }
         return BuildFinishedStatus.FINISHED_SUCCESS;
     }
 
     private String[] getTestNames() {
-        return getParameter(Util.PROPERTY_FITNESSE_TEST).split(";");
+        return getParameter(Util.PROPERTY_FITNESSE_TESTS).split(";");
     }
 
     @NotNull
@@ -111,21 +109,11 @@ public class FitnesseBuildProcess extends FutureBasedBuildProcess {
         return result;
     }
 
-    private int getPort() {
-        return Integer.parseInt(getParameter(Util.PROPERTY_FITNESSE_PORT));
-    }
-
-    private String getFitnesseUrl() throws UnknownHostException {
-        String hostname = "";
-        //TODO temporary decision. Need to implement "fitnesseHost" parameter
-        try {
-            hostname = this.getParameter(Util.PROPERTY_FITNESSE_HOST);
-        } catch (RuntimeException e) {
-            hostname = InetAddress.getLocalHost().getHostName();
-            if (hostname.length() == 0) {
-                hostname = DEFAULT_HOSTNAME;
-            }
+    private String getFitnesseHost() throws UnknownHostException {
+        String hostname = this.getParameter(Util.PROPERTY_FITNESSE_HOST);
+        if(hostname.length() == 0) {
+            hostname = Util.DEFAULT_HOST;
         }
-        return String.format("http://%s:%d/", hostname, getPort());
+        return hostname;
     }
 }

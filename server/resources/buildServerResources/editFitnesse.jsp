@@ -8,32 +8,22 @@
 <l:settingsGroup title="Fitnesse options">
     <tr>
         <th>
-            <label for="fitnesseJarPath">Fitnesse: </label>
+            <label for="fitnesseHost">Fitnesse host (ended with slash): </label>
         </th>
         <td>
-            <props:textProperty name="fitnesseJarPath" />
-            <span class="error" id="error_fitnesseJarPath"></span>
-            <span class="smallNote">c:\FTTNESSE\fitnesse.jar</span>
+            <props:textProperty name="fitnesseHost" />
+            <span class="error" id="error_fitnesseHost"></span>
+            <span class="smallNote">http://localhost:8080/</span>
         </td>
     </tr>
     <tr>
         <th>
-            <label for="fitnessePort">Port: </label>
+            <label for="fitnesseTests">Fitnesse test names</label>
         </th>
         <td>
-            <props:textProperty name="fitnessePort" />
-            <span class="error" id="error_fitnessePort"></span>
-            <span class="smallNote">8080</span>
-        </td>
-    </tr>
-    <tr>
-        <th>
-            <label for="fitnesseTest">Test or suite relative url </label>
-        </th>
-        <td>
-            <props:textProperty name="fitnesseTest" />
-            <span class="error" id="error_fitnesseTest"></span>
-            <span class="smallNote">TestSuite.SubSuite?sute or TestSuite.SuperTest?test</span>
+            <props:textProperty name="fitnesseTests" />
+            <span class="error" id="error_fitnesseTests"></span>
+            <span class="smallNote">FirstTest;SecondTest;ThirdTest</span>
         </td>
     </tr>
 </l:settingsGroup>

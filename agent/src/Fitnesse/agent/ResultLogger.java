@@ -50,7 +50,7 @@ public class ResultLogger {
         } else if (wrongs > 0 || exceptions > 0) {
             Logger.logTestFailed(testName, resultString, "");
         } else {
-            Logger.logTestFinished(resultString);
+            Logger.progressMessage(resultString);
         }
     }
 

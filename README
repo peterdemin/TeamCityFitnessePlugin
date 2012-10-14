@@ -1,28 +1,46 @@
-This plugin helps with integration of FitNesse test and TeamCity.
+Plugin for integration of FitNesse support into TeamCity.
+============
+If you want to run your FitNesse tests during project building - this plugin will ease your life. Just make sure you
+have a FitNesse instance running on TeamCity BuildAgent with relevant set of tests.
 
 Build
------
-You should have installed TeamCity, JAVA, ANT
-run ant in root directory
-get compiled Fitnesse.zip from dist folder
+--
+Prerequisitions:
+- JDK 1.7 or higher
+- ANT
+- TeamCity with it's bunch of OpenAPI sources
+
+Now just run 'ant' in project root directory. It will build a 'Fitnesse.zip' archive in 'dist' directory
 
 
-Instalation
-------------
-copy Fitnesse.zip to plugins directory (for windows %USERPROFILE%\.BuildServer\plugins) and resart TeamCity server
+Installation
+--
+Copy 'Fitnesse.zip' into 'plugins' directory on your TeamCity server machine
+(e.g. for Windows: %USERPROFILE%\.BuildServer\plugins) and restart TeamCity server. Server should update agent machines
+with new Fitnesse test runner automatically. Otherwise, restart agent machines manually
 
-Using
------
-Add "Fitnesse runer" build step 
+How to use
+--
+Add "Fitnesse runner" build step.
 
 Parameters:
-    Fitnesse: full path to fitnesse.jar 
-    Port: port for fitnesse 8081 (should be free)
-    Test or suite relative url: url to suite or test with '?suite' or '?test' <FitNesse.SuiteAcceptanceTests.SuiteResponderTests?suite>
+- Fitnesse host: URL to access FitNesse. Should contain port number if it's not 80. Has to be ended with slash.
+Example: http://localhost:8080/
+- Test names: single string with test names divided by semicolon
 
-If you have any questions feel free to ask me  
+License
+--
+GNU General Public License v.3
 
-    Eduard Kibort
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
 
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
 
-
+    Please visit http://www.gnu.org/licenses/gpl.html for details.
+Copyright © 2012, Eduard Kibort, Elgris
